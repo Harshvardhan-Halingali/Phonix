@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install essential system dependencies for OpenCV, PyAV, FFmpeg and healthcheck curl
+# Install essential system dependencies for OpenCV, PyAV, FFmpeg, soundfile and healthcheck curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ffmpeg \
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     curl \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies using CPU-optimized PyTorch

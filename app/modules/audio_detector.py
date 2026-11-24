@@ -7,7 +7,10 @@ from collections import OrderedDict
 import numpy as np
 import torch
 import soundfile as sf
-import librosa
+try:
+    import librosa
+except ImportError:
+    librosa = None
 from transformers import AutoModel, AutoConfig
 
 from app.config import settings
@@ -125,14 +128,20 @@ class AudioDeepfakeDetector:
             if y.ndim > 1:
                 y = np.mean(y, axis=0) if y.shape[0] < y.shape[1] else np.mean(y, axis=1)
             if sr != self.sample_rate:
-                y = librosa.resample(y.astype(np.float32), orig_sr=sr, target_sr=self.sample_rate)
+                if librosa is not None:
+                    y = librosa.resample(y.astype(np.float32), orig_sr=sr, target_sr=self.sample_rate)
             return y.astype(np.float32)
         except Exception:
             pass
 
         # 3. Try librosa
-        y, _ = librosa.load(file_path, sr=self.sample_rate, mono=True)
-        return y.astype(np.float32)
+        if librosa is not None:
+            try:
+                y, _ = librosa.load(file_path, sr=self.sample_rate, mono=True)
+                return y.astype(np.float32)
+            except Exception:
+                pass
+        return np.array([], dtype=np.float32)
 
     def preprocess_audio(self, file_path: str) -> Tuple[List[np.ndarray], Dict[str, Any]]:
         """
