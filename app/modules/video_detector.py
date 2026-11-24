@@ -9,7 +9,10 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
-from safetensors.torch import load_file
+try:
+    from safetensors.torch import load_file
+except ImportError:
+    load_file = None
 
 from app.config import settings
 
@@ -20,13 +23,24 @@ sys.path.insert(0, str(settings.GEND_MODEL_DIR))
 # Ensure offline loading for cached transformers architectures
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-from eval_demamba_standalone import (
-    XCLIP_DeMamba,
-    load_checkpoint as load_demamba_checkpoint,
-    sample_frames as demamba_sample_frames,
-    make_clips as demamba_make_clips,
-)
-from modeling_gend import GenD, GenDConfig
+try:
+    from eval_demamba_standalone import (
+        XCLIP_DeMamba,
+        load_checkpoint as load_demamba_checkpoint,
+        sample_frames as demamba_sample_frames,
+        make_clips as demamba_make_clips,
+    )
+except ImportError:
+    XCLIP_DeMamba = None
+    load_demamba_checkpoint = None
+    demamba_sample_frames = None
+    demamba_make_clips = None
+
+try:
+    from modeling_gend import GenD, GenDConfig
+except ImportError:
+    GenD = None
+    GenDConfig = None
 
 
 class DualVideoDetector:
@@ -55,9 +69,9 @@ class DualVideoDetector:
         # -------------------------------------------------------------
         # 1. Initialize DeMamba (AI-Generated Video Detector)
         # -------------------------------------------------------------
-        if not settings.DEMAMBA_CHECKPOINT_PATH.exists():
+        if XCLIP_DeMamba is None or not settings.DEMAMBA_CHECKPOINT_PATH.exists():
             raise FileNotFoundError(
-                f"DeMamba checkpoint not found at: {settings.DEMAMBA_CHECKPOINT_PATH}"
+                f"DeMamba model script or checkpoint not found at: {settings.DEMAMBA_MODEL_DIR}"
             )
 
         print("[DUAL VIDEO DETECTOR] Loading DeMamba (X-CLIP + Mamba)...")
@@ -69,7 +83,7 @@ class DualVideoDetector:
         # -------------------------------------------------------------
         # 2. Initialize GenD (Facial Deepfake Detector)
         # -------------------------------------------------------------
-        if not settings.GEND_CHECKPOINT_PATH.exists() or not settings.GEND_CONFIG_PATH.exists():
+        if GenD is None or not settings.GEND_CHECKPOINT_PATH.exists() or not settings.GEND_CONFIG_PATH.exists():
             raise FileNotFoundError(
                 f"GenD model files not found at: {settings.GEND_MODEL_DIR}"
             )
@@ -167,12 +181,15 @@ class DualVideoDetector:
             # =========================================================
             # STREAM 1: DeMamba (AI-Generated Video Detection)
             # =========================================================
-            demamba_frames = demamba_sample_frames(video_path)
-            if demamba_frames:
-                demamba_clips = demamba_make_clips(demamba_frames, num_clips=num_clips)
-                x_demamba = torch.from_numpy(demamba_clips).to(self.device)
-                demamba_logits = self.demamba_model(x_demamba)
-                p_ai_fake = float(demamba_logits[:, 0].sigmoid().mean().cpu().item())
+            if demamba_sample_frames is not None and self.demamba_model is not None:
+                demamba_frames = demamba_sample_frames(video_path)
+                if demamba_frames:
+                    demamba_clips = demamba_make_clips(demamba_frames, num_clips=num_clips)
+                    x_demamba = torch.from_numpy(demamba_clips).to(self.device)
+                    demamba_logits = self.demamba_model(x_demamba)
+                    p_ai_fake = float(demamba_logits[:, 0].sigmoid().mean().cpu().item())
+                else:
+                    p_ai_fake = 0.0
             else:
                 p_ai_fake = 0.0
 
@@ -205,7 +222,7 @@ class DualVideoDetector:
                     timestamp_sec = round(current_frame_idx / fps, 2)
                     face_crop, face_meta = self.detect_face_and_crop(frame)
 
-                    if face_meta["face_detected"] and face_crop is not None:
+                    if self.gend_model is not None and face_meta["face_detected"] and face_crop is not None:
                         faces_detected_count += 1
                         if face_meta.get("low_res"):
                             low_res_count += 1
